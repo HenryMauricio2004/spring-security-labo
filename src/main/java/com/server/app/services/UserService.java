@@ -1,5 +1,7 @@
 package com.server.app.services;
 
+import com.server.app.exceptions.BadRequestException;
+import com.server.app.exceptions.UnauthorizedException;
 import lombok.AllArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -111,4 +113,87 @@ public class UserService {
       }
     });
   }
+
+
+  public User login(String username, String password) {
+    User user = userRepository.findUserByUsername(username)
+            .orElseThrow(() -> new UnauthorizedException("Credenciales incorrectas"));
+
+    if (!passwordEncoder.matches(password, user.getPassword())) {
+      throw new UnauthorizedException("Credenciales incorrectas");
+    }
+
+    if (user.isBlocked()) {
+      throw new UnauthorizedException("Tu cuenta está bloqueada");
+    }
+
+    if (!user.getRole().getActive()) {
+      throw new UnauthorizedException("Tu rol está inactivo");
+    }
+
+    return user;
+  }
+
+  @Transactional
+  public User signUp(UserCreateDto dto) {
+    uniqueUsername(dto.getUsername(), null);
+    uniqueEmail(dto.getEmail(), null);
+
+    Role role = roleRepository.findByName("ADMIN")
+            .orElseThrow(() -> new NotFoundException("Rol ADMIN no encontrado"));
+
+    if (!role.getActive()) {
+      throw new UnauthorizedException("El rol ADMIN está inactivo");
+    }
+
+    User user = new User();
+    user.setUsername(dto.getUsername());
+    user.setName(dto.getName());
+    user.setSurname(dto.getSurname());
+    user.setEmail(dto.getEmail());
+    user.setPassword(passwordEncoder.encode(dto.getPassword()));
+    user.setRole(role);
+
+    return userRepository.save(user);
+  }
+
+  @Transactional
+  public User updateProfile(int userId, com.server.app.dto.auth.UpdateProfileDto dto) {
+    User user = findById(userId);
+
+    if (dto.getUsername() != null && !dto.getUsername().isBlank()) {
+      uniqueUsername(dto.getUsername(), userId);
+      user.setUsername(dto.getUsername());
+    }
+    if (dto.getName() != null && !dto.getName().isBlank()) {
+      user.setName(dto.getName());
+    }
+    if (dto.getSurname() != null && !dto.getSurname().isBlank()) {
+      user.setSurname(dto.getSurname());
+    }
+    if (dto.getEmail() != null && !dto.getEmail().isBlank()) {
+      uniqueEmail(dto.getEmail(), userId);
+      user.setEmail(dto.getEmail());
+    }
+
+    return userRepository.save(user);
+  }
+
+  @Transactional
+  public User updatePassword(int userId, com.server.app.dto.auth.UpdatePasswordDto dto) {
+    User user = findById(userId);
+
+    if (!passwordEncoder.matches(dto.getOldpassword(), user.getPassword())) {
+      throw new BadRequestException("La contraseña actual es incorrecta");
+    }
+
+    if (!dto.getNewpassword().equals(dto.getConfirmpassword())) {
+      throw new BadRequestException("Las contraseñas nuevas no coinciden");
+    }
+
+    user.setPassword(passwordEncoder.encode(dto.getNewpassword()));
+    return userRepository.save(user);
+  }
+
+
 }
